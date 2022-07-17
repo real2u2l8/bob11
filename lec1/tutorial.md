@@ -22,7 +22,7 @@ $ gdb [binary name]
 
 <img src="img/pic2.png" alt="pwndbg_context" width="600" class="center">
 
-pwndbg에 대한 다양한 기능을 배우고 싶으면 다음 링크를 참조하시지 바랍니다 [here](https://github.com/pwndbg/pwndbg/blob/dev/FEATURES.md).
+pwndbg에 대한 다양한 기능을 배우고 싶으면 다음 링크를 참조하시지 바랍니다 [(여기)](https://github.com/pwndbg/pwndbg/blob/dev/FEATURES.md).
 
 관심이 있다면 아래의 기능을 스스로 사용해보시기 바랍니다.
 
@@ -51,7 +51,88 @@ pwndbg에 대한 다양한 기능을 배우고 싶으면 다음 링크를 참조
 
 ## 첫 바이너리를 디버깅해보자
 
+### 구동환경
 
+```sh
+# add user “lec1”
+$ sudo useradd lec1
+
+# generate a flag and grant proper privilege
+$ echo "This is my flag" > flag
+$ chmod 440 flag
+$ sudo chown lec1:lec1 flag
+
+# take care of the binary
+$ sudo chown lec1:lec1 ex2
+$ sudo chmod 2755 ex2
+```
+
+위 명령어를 사용하여 `lec1` 사용자만 flag를 읽을 수 있게 하였습니다. `ls` 명령어를 사용하여 파일의 소유자와 privilege를 확인할 수 있습니다.
+
+```
+$ ls -als
+
+total 112
+ 4 drwxr-xr-x 3 jjung jjung  4096 Jul 18 05:14 .
+ 4 drwxr-xr-x 5 jjung jjung  4096 Jul 18 04:20 ..
+ 4 -rw-r--r-- 1 jjung jjung    13 Jul 12 06:37 .gitignore
+ 4 -rw-r--r-- 1 jjung jjung   189 Jul 12 05:43 Makefile
+16 -rwxr-xr-x 1 jjung jjung 16368 Jul 12 05:43 ex1
+ 4 -rw-r--r-- 1 jjung jjung   310 Jul 12 05:43 ex1.c
+20 -rwxr-sr-x 1 lec1  lec1  16620 Jul 12 05:43 ex2
+ 4 -rw-r--r-- 1 jjung jjung   445 Jul 12 05:43 ex2.c
+16 -rwxr-xr-x 1 jjung jjung 16140 Jul 12 05:43 ex3
+ 4 -rw-r--r-- 1 jjung jjung   169 Jul 12 05:43 ex3.c
+20 -rwxr-xr-x 1 jjung jjung 16804 Jul 12 05:43 ex4
+ 4 -r--r----- 1 lec1  lec1     16 Jul 18 05:13 flag
+ 4 drwxr-xr-x 2 jjung jjung  4096 Jul 18 04:54 img
+ 4 -rw-r--r-- 1 jjung jjung  4043 Jul 18 05:13 tutorial.md
+```
+
+flag파일의 경우 소유자는 `lec1`이며 runtime 실행모드는 `-r--r-----` 입니다.
+
+* 첫번째 `-`: 디렉토리 여부
+* 두번째 `r--`: 파일의 소유자는 해당 파일을 읽을 수 있음
+* 세번째 `r--`: 해당 그룹에 속하는 user는 파일을 읽을 수 있음
+* 네번째 `---`: 그 밖에 다른 사람들은 아무것도 할 수 없음
+
+여기서 특이한 것은 ex2 바이너리의 경우 `-rwxr-sr-x`로 표시되어 있습니다. 이것이 가리키는 의미는 아래와 같습니다.
+
+* 파일 소유자: r/w/x를 할 수 있는 권한이 있음
+* 그룹멤버: r/x를 할 수 있음, 그리고 해당 파일을 실행하는 동안 그룹멤버의 privilege를 가지게 됨
+* 다른 사람들은 r/x의 권한을 가짐
+
+
+### 소스코드
+
+
+
+```c
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void spawn_shell(){
+        printf("There you are!\n");
+        setregid(getegid(), getegid());
+        execl("/bin/bash", "bash", NULL);
+}
+
+int main(){
+        char buf[512];
+        printf("What is your password?\n");
+        scanf("%s", buf);
+        if(strcmp(buf, "Password") == 0){
+                printf("Correct!\n");
+                spawn_shell();
+        }
+        else{
+                printf("Wrong password!\n");
+        }
+        return 0;
+}
+```
 
 
 ## Control-flow Hijacking 실습
