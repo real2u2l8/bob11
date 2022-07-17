@@ -328,7 +328,77 @@ int main(){
 
 ## Control-flow Hijacking 실습
 
-control-flow hijacking을 할 준비가 되었습니다.
+control-flow hijacking을 할 준비가 되었습니다. ex4 바이너리를 사용하면 됩니다. 실습목적상 ex4 바이너리의 소스코드는 제공하지 않습니다.
 
 `ex4` 바이너리를 가지고 control-flow를 hijack 해 봅시다. 우리의 목표는 `impossible_trigger()` 함수를 호출하는 것입니다. 현재 정의된 `global_var` 변수가 있고 초기값은 0이 입력되어 있습니다. 코드내부에 `global_var`를 변경하는 부분이 없기 때문에, 정상적인 실행흐픔에서는 `impossible_trigger()` 함수가 호출될 수 없습니다. 하지만 memory corruption 취약점을 활용해서 `impossible_trigger()` 함수를 호출할 수 있습니다.
 
+먼저 main() 함수의 instruction들입니다. 그다지 흥미로운 것은 없습니다.
+
+```sh
+   0x08049240 <+0>:     push   ebp
+   0x08049241 <+1>:     mov    ebp,esp
+   0x08049243 <+3>:     sub    esp,0x8
+   0x08049246 <+6>:     mov    DWORD PTR [ebp-0x4],0x0
+   0x0804924d <+13>:    call   0x80491d0 <receive_input>
+   0x08049252 <+18>:    cmp    DWORD PTR ds:0x804c048,0x0
+   0x08049259 <+25>:    je     0x8049264 <main+36>
+   0x0804925f <+31>:    call   0x80491a0 <impossible_trigger>
+   0x08049264 <+36>:    xor    eax,eax
+   0x08049266 <+38>:    add    esp,0x8
+   0x08049269 <+41>:    pop    ebp
+   0x0804926a <+42>:    ret
+```
+
+다음으로 receive_input() 함수의 instruction들입니다. 뭔가 memory corruption을 성공시킬 수 있을 것 같군요.
+
+```sh
+   0x080491d0 <+0>:     push   ebp
+   0x080491d1 <+1>:     mov    ebp,esp
+   0x080491d3 <+3>:     sub    esp,0x38
+   0x080491d6 <+6>:     mov    DWORD PTR [ebp-0x4],0x41414141
+   0x080491dd <+13>:    mov    DWORD PTR [ebp-0x8],0x42424242
+   0x080491e4 <+20>:    mov    eax,DWORD PTR [ebp-0x4]
+   0x080491e7 <+23>:    mov    ecx,DWORD PTR [ebp-0x8]
+   0x080491ea <+26>:    lea    edx,ds:0x804a02c
+   0x080491f0 <+32>:    mov    DWORD PTR [esp],edx
+   0x080491f3 <+35>:    mov    DWORD PTR [esp+0x4],eax
+   0x080491f7 <+39>:    mov    DWORD PTR [esp+0x8],ecx
+   0x080491fb <+43>:    call   0x8049040 <printf@plt>
+   0x08049200 <+48>:    lea    ecx,ds:0x804a053
+   0x08049206 <+54>:    mov    DWORD PTR [esp],ecx
+   0x08049209 <+57>:    mov    DWORD PTR [ebp-0x20],eax
+   0x0804920c <+60>:    call   0x8049040 <printf@plt>
+   0x08049211 <+65>:    lea    ecx,[ebp-0x1c]
+   0x08049214 <+68>:    mov    edx,DWORD PTR ds:0x804c040
+   0x0804921a <+74>:    mov    DWORD PTR [esp],ecx
+   0x0804921d <+77>:    mov    DWORD PTR [esp+0x4],0x80
+   0x08049225 <+85>:    mov    DWORD PTR [esp+0x8],edx
+   0x08049229 <+89>:    mov    DWORD PTR [ebp-0x24],eax
+   0x0804922c <+92>:    call   0x8049050 <fgets@plt>
+   0x08049231 <+97>:    add    esp,0x38
+   0x08049234 <+100>:   pop    ebp
+   0x08049235 <+101>:   ret
+```
+
+
+```sh
+
+------------------------
+ return_address
+ (of receive_input())
+------------------------
+ saved EBP
+------------------------
+ 0x41414141
+------------------------
+ 0x42424242
+------------------------
+  ^
+ buf
+  v
+------------------------
+```
+
+우리가 해야 할 것은 buf부터 시작해서 return address까지 overwrite를 시킨 다음, 함수가 return할 때 `impossible_trigger()` 함수가 호출되도록 하는 것입니다. 그래서 return address를 `impossible_trigger()` 주소로 덮어쓰기 하는 것이 중요합니다.
+
+가장 쉽게는 입력값으로 `AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL...` 과 같이 길지만 내용이 구분되는 값을 보내보는 겁니다. 그렇게 해서 함수가 return 했을 때 0x45454545로 EIP가 바뀌었다면 return address를 0x45454545로 덮어썼다는 의미입니다. instruction들을 자세히 관찰하여 buf 크기를 역산한 후 한번에 정확한 exploit을 작성할 수도 있습니다.
