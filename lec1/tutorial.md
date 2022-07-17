@@ -155,7 +155,7 @@ This is my flag
 ```
 
 
-### pwngdb로 instruction 따라가보기
+### pwngdb로 ex2 바이너리 instruction 따라가보기
 
 먼저 main함수를 봅시다. `disas` 명령어를 사용하여 disassembled instruction들을 볼 수 있습니다.
 
@@ -199,7 +199,7 @@ Dump of assembler code for function main:
 End of assembler dump.
 ```
 
-특히 main함수의 가장 첫 부분과 마지막 부분은 `function prologue`와 `function epilogue`로 불립니다. function prologue는 현재의 base pointer를 push하며 (`push ebp`) 나중에 함수가 끝날때 epilogue에서 복구합니다. 이후 base pointer는 현재 stack pointer의 주소를 가지게 됩니다. 그래서 base pointer는 스택의 가장 끝을 가리키지요 (`mov ebp, esp`). 그 다음으로 지역변수들이 들어갈 수 있는 공간을 만들어주기 위해 stack pointer 값이 줄어들게 됩니다 (`sub esp, N`). function epilogue에서는 prologue와 정반대되는 일을 합니다.
+특히 main함수의 가장 첫 부분과 마지막 부분은 `function prologue`와 `function epilogue`로 불립니다. `function prologue`는 현재의 base pointer를 push하며 (`push ebp`) 나중에 함수가 끝날때 `function epilogue`에서 복구합니다. 이후 base pointer는 현재 stack pointer의 주소를 가지게 됩니다. 그래서 base pointer는 스택의 가장 끝을 가리키지요 (`mov ebp, esp`). 그 다음으로 지역변수들이 들어갈 수 있는 공간을 만들어주기 위해 stack pointer 값이 줄어들게 됩니다 (`sub esp, N`). `function epilogue`에서는 `function prologue`와 정반대되는 일을 합니다.
 
 ```sh
    0x08049230 <+0>:     push   ebp
@@ -219,7 +219,7 @@ End of assembler dump.
    0x08049249 <+25>:    call   0x8049050 <printf@plt>
 ```
 
-LEA는 Load Effective Address 명령입니다. 좌변 레지스터에 우변의 주소값을 저장하는 명령입니다. `lea eax,ds:0x804a022` 가 실행되면 주소값인 `0x804a022` 자체가 eax레지스터에 저장됩니다. 그 다음으로 eax 레지스터에 저장된 값 (주소)이 스택의 최상단에 위치하게 됩니다. push가 아니라 `mov DWORD PTR [esp],eax` instruction이기 때문에 스택 최상단에 있는 값을 덮어쓰게 됩니다. 마지막으로 `printf()` 함수가 호출됩니다 (`call   0x8049050 <printf@plt>`). 현재는 32bit 바이너리이기 때문에 call convention은 스택에서 함수호출 인자값을 불러오는 방식을 취합니다. 그렇다면 인자로 넘어갔던 `0x804a022`에는 무엇이 있었을까요?
+`LEA`는 Load Effective Address 명령입니다. 좌변 레지스터에 우변의 주소값을 저장하는 명령입니다. `lea eax,ds:0x804a022` 가 실행되면 주소값인 `0x804a022` 자체가 eax레지스터에 저장됩니다. 그 다음으로 eax 레지스터에 저장된 값 (주소)이 스택의 최상단에 위치하게 됩니다. push가 아니라 `mov DWORD PTR [esp],eax` instruction이기 때문에 스택 최상단에 있는 값을 덮어쓰게 됩니다. 마지막으로 `printf()` 함수가 호출됩니다 (`call   0x8049050 <printf@plt>`). 현재는 32bit 바이너리이기 때문에 calling convention은 스택을 통해 함수호출 인자값을 전달하는 방식을 취합니다. 스택의 가장 끝부분에 함수의 첫번째 인자가 위치합니다. 그렇다면 인자로 넘어갔던 `0x804a022`에는 무엇이 있었을까요?
 
 ```sh
 pwndbg> x/x 0x804a022
@@ -249,7 +249,7 @@ pwndbg> x/s 0x804a03a
 0x804a03a:      "%s"
 ```
 
-마지막으로 strcmp() 함수 호출이 어떻게 처리되는지 봅시다. 함수의 인자값이 전달되는 것은 scanf()와 동일하기 때문에 생략합니다. 여기서는 strcmp() 호출 이후 if-else 조건이 처리되는 방법을 확인합니다.
+마지막으로 `strcmp()` 함수 호출이 어떻게 처리되는지 봅시다. 함수의 인자값이 전달되는 것은 `scanf()`와 동일하기 때문에 생략합니다. 여기서는 `strcmp()` 호출 이후 if-else 조건이 처리되는 방법을 확인합니다.
 
 ```sh
    0x08049283 <+83>:    call   0x8049040 <strcmp@plt>
@@ -262,9 +262,73 @@ pwndbg> x/s 0x804a03a
    0x080492a5 <+117>:   call   0x80491d0 <spawn_shell>
    0x080492aa <+122>:   jmp    0x80492bd <main+141>
    0x080492af <+127>:   lea    eax,ds:0x804a050
+   0x080492b5 <+133>:   mov    DWORD PTR [esp],eax
+   0x080492b8 <+136>:   call   0x8049050 <printf@plt>
+```
+
+소스코드는 아래와 같으니 같이 비교하시기 바랍니다.
+
+```c
+        if(strcmp(buf, "Password") == 0){
+                printf("Correct!\n");
+                spawn_shell();
+        }
+        else{
+                printf("Wrong password!\n");
+        }
+```
+
+먼저 `strcmp()` 함수는 `eax` 레지스터에 저장된 상태로 리턴이 됩니다. `cmp` 명령은 리턴된 값과 0x0값을 비교하게 되는데 이때 `cmp` 명령의 결과가 같지 않다면 (not equal) `0x80492af`로 점프(`jne 0x80492af <main+127>`)하게 됩니다. 실제 `cmp` instruction은 두 값을 비교하는 것이 아니라 빼기 연산을 수행하고 결과를 ZF/CF flag에 저장하는 것입니다. `jne`는 이 flag들의 값을 보고 같은지 좌변/우변이 같았는지 알수 있습니다. 아무튼, 현재 부분은 소스코드의 else 조건에 해당합니다. `0x80492b5`로 점프하게 되면 `Wrong password`라는 메시지를 `printf()` 함수를 통해 출력하고 프로그램이 종료되게 됩니다.
+
+만약 `cmp` 명령의 결과가 같다면 `jne 0x80492af <main+127>`를 통해 jump하지 않습니다. 대신에 바로 다음 명령인 `lea eax,ds:0x804a046`가 실행되게 됩니다. 쭉 따라가다 보면 shell을 spawn한 이후 `jmp    0x80492bd <main+141>`에서 프로그램이 종료되는 위치로 한번 더 jump를 하는 것을 알 수 있습니다. 이는 else 컨디션에서 실행될 코드를 건너뛰는 역할을 합니다.
+
+### pwndbg로 ex3 바이너리 따라가보기
+
+
+loop가 instruction-level에서는 어떻게 표현되는지 학습하기 위한 예제입니다. instruction 단위로 따라가면서 loop 카운터가 어떻게 처리되고 jump operation이 어떤 국면에서 발생하는지 쉽게 확인할 수 있을 겁니다.
+
+
+```c
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int main(){
+        int i;
+        for (i=0; i<10; i++)
+                printf("%d\n", i);
+        return 0;
+}
+```
+
+```sh
+   0x08049180 <+0>:     push   ebp
+   0x08049181 <+1>:     mov    ebp,esp
+   0x08049183 <+3>:     sub    esp,0x18
+   0x08049186 <+6>:     mov    DWORD PTR [ebp-0x4],0x0
+   0x0804918d <+13>:    mov    DWORD PTR [ebp-0x8],0x0
+   0x08049194 <+20>:    cmp    DWORD PTR [ebp-0x8],0xa
+   0x08049198 <+24>:    jge    0x80491c1 <main+65>
+   0x0804919e <+30>:    mov    eax,DWORD PTR [ebp-0x8]
+   0x080491a1 <+33>:    lea    ecx,ds:0x804a008
+   0x080491a7 <+39>:    mov    DWORD PTR [esp],ecx
+   0x080491aa <+42>:    mov    DWORD PTR [esp+0x4],eax
+   0x080491ae <+46>:    call   0x8049040 <printf@plt>
+   0x080491b3 <+51>:    mov    eax,DWORD PTR [ebp-0x8]
+   0x080491b6 <+54>:    add    eax,0x1
+   0x080491b9 <+57>:    mov    DWORD PTR [ebp-0x8],eax
+   0x080491bc <+60>:    jmp    0x8049194 <main+20>
+   0x080491c1 <+65>:    xor    eax,eax
+   0x080491c3 <+67>:    add    esp,0x18
+   0x080491c6 <+70>:    pop    ebp
+   0x080491c7 <+71>:    ret
 ```
 
 
 ## Control-flow Hijacking 실습
 
+control-flow hijacking을 할 준비가 되었습니다.
+
 `ex4` 바이너리를 가지고 control-flow를 hijack 해 봅시다. 우리의 목표는 `impossible_trigger()` 함수를 호출하는 것입니다. 현재 정의된 `global_var` 변수가 있고 초기값은 0이 입력되어 있습니다. 코드내부에 `global_var`를 변경하는 부분이 없기 때문에, 정상적인 실행흐픔에서는 `impossible_trigger()` 함수가 호출될 수 없습니다. 하지만 memory corruption 취약점을 활용해서 `impossible_trigger()` 함수를 호출할 수 있습니다.
+
