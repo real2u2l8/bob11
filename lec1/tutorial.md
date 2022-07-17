@@ -102,7 +102,7 @@ flag파일의 경우 소유자는 `lec1`이며 runtime 실행모드는 `-r--r---
 
 * 파일 소유자: r/w/x를 할 수 있는 권한이 있음
 * 그룹멤버: r/x를 할 수 있음, 그리고 해당 파일을 실행하는 동안 그룹멤버의 privilege를 가지게 됨
-* 다른 사람들은 r/x의 권한을 가짐
+* 그 밖의 다른 사람들은 r/x의 권한을 가짐
 
 
 ### ex2.c 소스코드
@@ -135,9 +135,9 @@ int main(){
 }
 ```
 
-우선 `scanf()` 함수에서 buf로 문자열을 받습니다. `strcmp()` 함수에서 만약 사용자의 입력값이 `Password` 인 경우 `spawn_shell()` 함수를 실행합니다. 또한 호출된 함수에서는 "/bin/sh" 을 실행합니다.
+소스코드부터 봅시다. 매우 단순합니다. 우선 `scanf()` 함수에서 buf로 문자열을 받습니다. `strcmp()` 함수에서 만약 사용자의 입력값이 `Password` 인 경우 `spawn_shell()` 함수를 실행합니다. 또한 호출된 함수에서는 "/bin/sh" 을 실행합니다.
 
-ex2 바이너리의 경우 해당 바이너리를 실행하는 동안 ex2 그룹이 가지는 권한을 얻을 수 있기 때문에 spawn된 쉘에서는 flag를 읽을 수 있습니다.
+ex2 바이너리의 경우 해당 바이너리를 실행하는 동안 ex2 그룹이 가지는 권한을 얻을 수 있기 때문에 spawn된 쉘에서는 flag를 읽을 수 있습니다. 이런 식으로 특수한 권한을 가진 바이너리를 이용하여 flag를 읽는 방식으로 많은 CTF대회가 운영됩니다.
 
 
 ```sh
@@ -153,6 +153,7 @@ There you are!
 ~/bob/bob11-repo/lec1$ cat flag
 This is my flag
 ```
+
 
 ### pwngdb로 instruction 따라가보기
 
@@ -210,6 +211,58 @@ End of assembler dump.
    0x080492c6 <+150>:   ret
 ```
 
+첫번재로 `printf` 함수가 호출됩니다. 다음 instruction을 봅시다.
+
+```sh
+   0x08049240 <+16>:    lea    eax,ds:0x804a022
+   0x08049246 <+22>:    mov    DWORD PTR [esp],eax
+   0x08049249 <+25>:    call   0x8049050 <printf@plt>
+```
+
+LEA는 Load Effective Address 명령입니다. 좌변 레지스터에 우변의 주소값을 저장하는 명령입니다. `lea eax,ds:0x804a022` 가 실행되면 주소값인 `0x804a022` 자체가 eax레지스터에 저장됩니다. 그 다음으로 eax 레지스터에 저장된 값 (주소)이 스택의 최상단에 위치하게 됩니다. push가 아니라 `mov DWORD PTR [esp],eax` instruction이기 때문에 스택 최상단에 있는 값을 덮어쓰게 됩니다. 마지막으로 `printf()` 함수가 호출됩니다 (`call   0x8049050 <printf@plt>`). 현재는 32bit 바이너리이기 때문에 call convention은 스택에서 함수호출 인자값을 불러오는 방식을 취합니다. 그렇다면 인자로 넘어갔던 `0x804a022`에는 무엇이 있었을까요?
+
+```sh
+pwndbg> x/x 0x804a022
+0x804a022:      0x74616857
+pwndbg> x/s 0x804a022
+0x804a022:      "What is your password?\n"
+```
+
+`x/x`명령으로 16진수로 표시했더니 `0x74616857`가 쓰여있는데 범위가 Ascii 캐릭터 같습니다. `x/s` 명령으로 확인하니 string을 볼 수 있습니다. 이는 소스코드의 `printf("What is your password?\n");` 부분과 같습니다.
+
+
+다음은 scanf() 함수입니다.
+
+```sh
+   0x0804924e <+30>:    lea    ecx,[ebp-0x204]
+   0x08049254 <+36>:    lea    edx,ds:0x804a03a
+   0x0804925a <+42>:    mov    DWORD PTR [esp],edx
+   0x0804925d <+45>:    mov    DWORD PTR [esp+0x4],ecx
+   0x08049261 <+49>:    mov    DWORD PTR [ebp-0x208],eax
+   0x08049267 <+55>:    call   0x80490a0 <__isoc99_scanf@plt>
+```
+
+먼저 지역변수 (소스코드에서는 buf) 주소를 `ecx`에 assign하고 이후 해당 값은 stack의 최상단에서 두번째에 위치합니다 (`lea ecx,[ebp-0x204]` + `mov DWORD PTR [esp+0x4],ecx`). `0x804a03a` 주소값을 `edx`에 저장한 후 (`lea  edx,ds:0x804a03a`), stack의 최상단에 해당 값이 위치하게 됩니다 (`mov DWORD PTR [esp],edx`). 이후 `scanf()`가 호출되면 첫번째 인자로 `0x804a03a` 주소값, 두번째 인자로 지역변수의 주소가 전달되게 됩니다. `0x804a03a` 주소에는 `%s` 라는 format string이 들어있습니다.
+
+```sh
+pwndbg> x/s 0x804a03a
+0x804a03a:      "%s"
+```
+
+마지막으로 strcmp() 함수 호출이 어떻게 처리되는지 봅시다. 함수의 인자값이 전달되는 것은 scanf()와 동일하기 때문에 생략합니다. 여기서는 strcmp() 호출 이후 if-else 조건이 처리되는 방법을 확인합니다.
+
+```sh
+   0x08049283 <+83>:    call   0x8049040 <strcmp@plt>
+   0x08049288 <+88>:    cmp    eax,0x0
+   0x0804928b <+91>:    jne    0x80492af <main+127>
+   0x08049291 <+97>:    lea    eax,ds:0x804a046
+   0x08049297 <+103>:   mov    DWORD PTR [esp],eax
+   0x0804929a <+106>:   call   0x8049050 <printf@plt>
+   0x0804929f <+111>:   mov    DWORD PTR [ebp-0x210],eax
+   0x080492a5 <+117>:   call   0x80491d0 <spawn_shell>
+   0x080492aa <+122>:   jmp    0x80492bd <main+141>
+   0x080492af <+127>:   lea    eax,ds:0x804a050
+```
 
 
 ## Control-flow Hijacking 실습
