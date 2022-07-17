@@ -401,4 +401,6 @@ control-flow hijacking을 할 준비가 되었습니다. ex4 바이너리를 사
 
 우리가 해야 할 것은 buf부터 시작해서 return address까지 overwrite를 시킨 다음, 함수가 return할 때 `impossible_trigger()` 함수가 호출되도록 하는 것입니다. 그래서 return address를 `impossible_trigger()` 주소로 덮어쓰기 하는 것이 중요합니다.
 
-가장 쉽게는 입력값으로 `AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL...` 과 같이 길지만 내용이 구분되는 값을 보내보는 겁니다. 그렇게 해서 함수가 return 했을 때 0x45454545로 EIP가 바뀌었다면 return address를 0x45454545로 덮어썼다는 의미입니다. instruction들을 자세히 관찰하여 buf 크기를 역산한 후 한번에 정확한 exploit을 작성할 수도 있습니다.
+가장 쉽게는 입력값으로 `AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKKKLLLL...` 와 같이 길지만 내용이 구분되는 값을 보내보는 겁니다. 그렇게 해서 함수가 return 했을 때 0x45454545로 EIP가 바뀌었다면 return address를 0x45454545로 덮어썼다는 의미입니다. instruction들을 자세히 관찰하여 buf 크기를 역산한 후 한번에 정확한 exploit을 작성할 수도 있습니다.
+
+만약 exploit에 성공했다면 프로그램이 crash되지 않고 /bin/sh이 실행된 프롬프트를 볼 수 있을 겁니다.
