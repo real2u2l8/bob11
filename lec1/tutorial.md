@@ -51,7 +51,9 @@ pwndbg에 대한 다양한 기능을 배우고 싶으면 다음 링크를 참조
 
 ## 첫 바이너리를 디버깅해보자
 
-### 구동환경
+### 구동환경 구성
+
+아래의 명령어를 이용하여 파일에 적절한 권한을 부여합시다.
 
 ```sh
 # add user “lec1”
@@ -103,8 +105,7 @@ flag파일의 경우 소유자는 `lec1`이며 runtime 실행모드는 `-r--r---
 * 다른 사람들은 r/x의 권한을 가짐
 
 
-### 소스코드
-
+### ex2.c 소스코드
 
 
 ```c
@@ -134,5 +135,83 @@ int main(){
 }
 ```
 
+우선 `scanf()` 함수에서 buf로 문자열을 받습니다. `strcmp()` 함수에서 만약 사용자의 입력값이 `Password` 인 경우 `spawn_shell()` 함수를 실행합니다. 또한 호출된 함수에서는 "/bin/sh" 을 실행합니다.
+
+ex2 바이너리의 경우 해당 바이너리를 실행하는 동안 ex2 그룹이 가지는 권한을 얻을 수 있기 때문에 spawn된 쉘에서는 flag를 읽을 수 있습니다.
+
+
+```sh
+$ cat flag
+cat: flag: Permission denied
+
+$ ./ex2
+What is your password?
+Password
+Correct!
+There you are!
+
+~/bob/bob11-repo/lec1$ cat flag
+This is my flag
+```
+
+### pwngdb로 instruction 따라가보기
+
+먼저 main함수를 봅시다. `disas` 명령어를 사용하여 disassembled instruction들을 볼 수 있습니다.
+
+```sh
+pwndbg> disas main
+Dump of assembler code for function main:
+   0x08049230 <+0>:     push   ebp
+   0x08049231 <+1>:     mov    ebp,esp
+   0x08049233 <+3>:     sub    esp,0x218
+   0x08049239 <+9>:     mov    DWORD PTR [ebp-0x4],0x0
+   0x08049240 <+16>:    lea    eax,ds:0x804a022
+   0x08049246 <+22>:    mov    DWORD PTR [esp],eax
+   0x08049249 <+25>:    call   0x8049050 <printf@plt>
+   0x0804924e <+30>:    lea    ecx,[ebp-0x204]
+   0x08049254 <+36>:    lea    edx,ds:0x804a03a
+   0x0804925a <+42>:    mov    DWORD PTR [esp],edx
+   0x0804925d <+45>:    mov    DWORD PTR [esp+0x4],ecx
+   0x08049261 <+49>:    mov    DWORD PTR [ebp-0x208],eax
+   0x08049267 <+55>:    call   0x80490a0 <__isoc99_scanf@plt>
+   0x0804926c <+60>:    lea    ecx,[ebp-0x204]
+   0x08049272 <+66>:    mov    edx,esp
+   0x08049274 <+68>:    mov    DWORD PTR [edx],ecx
+   0x08049276 <+70>:    mov    DWORD PTR [edx+0x4],0x804a03d
+   0x0804927d <+77>:    mov    DWORD PTR [ebp-0x20c],eax
+   0x08049283 <+83>:    call   0x8049040 <strcmp@plt>
+   0x08049288 <+88>:    cmp    eax,0x0
+   0x0804928b <+91>:    jne    0x80492af <main+127>
+   0x08049291 <+97>:    lea    eax,ds:0x804a046
+   0x08049297 <+103>:   mov    DWORD PTR [esp],eax
+   0x0804929a <+106>:   call   0x8049050 <printf@plt>
+   0x0804929f <+111>:   mov    DWORD PTR [ebp-0x210],eax
+   0x080492a5 <+117>:   call   0x80491d0 <spawn_shell>
+   0x080492aa <+122>:   jmp    0x80492bd <main+141>
+   0x080492af <+127>:   lea    eax,ds:0x804a050
+   0x080492b5 <+133>:   mov    DWORD PTR [esp],eax
+   0x080492b8 <+136>:   call   0x8049050 <printf@plt>
+   0x080492bd <+141>:   xor    eax,eax
+   0x080492bf <+143>:   add    esp,0x218
+   0x080492c5 <+149>:   pop    ebp
+   0x080492c6 <+150>:   ret
+End of assembler dump.
+```
+
+특히 main함수의 가장 첫 부분과 마지막 부분은 `function prologue`와 `function epilogue`로 불립니다. function prologue는 현재의 base pointer를 push하며 (`push ebp`) 나중에 함수가 끝날때 epilogue에서 복구합니다. 이후 base pointer는 현재 stack pointer의 주소를 가지게 됩니다. 그래서 base pointer는 스택의 가장 끝을 가리키지요 (`mov ebp, esp`). 그 다음으로 지역변수들이 들어갈 수 있는 공간을 만들어주기 위해 stack pointer 값이 줄어들게 됩니다 (`sub esp, N`). function epilogue에서는 prologue와 정반대되는 일을 합니다.
+
+```sh
+   0x08049230 <+0>:     push   ebp
+   0x08049231 <+1>:     mov    ebp,esp
+   0x08049233 <+3>:     sub    esp,0x218
+   ...
+   0x080492bf <+143>:   add    esp,0x218
+   0x080492c5 <+149>:   pop    ebp
+   0x080492c6 <+150>:   ret
+```
+
+
 
 ## Control-flow Hijacking 실습
+
+`ex4` 바이너리를 가지고 control-flow를 hijack 해 봅시다. 우리의 목표는 `impossible_trigger()` 함수를 호출하는 것입니다. 현재 정의된 `global_var` 변수가 있고 초기값은 0이 입력되어 있습니다. 코드내부에 `global_var`를 변경하는 부분이 없기 때문에, 정상적인 실행흐픔에서는 `impossible_trigger()` 함수가 호출될 수 없습니다. 하지만 memory corruption 취약점을 활용해서 `impossible_trigger()` 함수를 호출할 수 있습니다.
